@@ -41,15 +41,16 @@ public class ClientHandler implements Runnable {
                     continue;
                 }
 
-                String command = message.split("\\|")[0];
+                String[] parts = message.split("\\|", 2);
+                String command = parts.length > 0 ? parts[0] : ""; // added command extraction just to be safe!
                 System.out.println("[REQUEST] " + clientAddress + " -> " + command);
 
                 String response = processCommand(message);
                 output.println(response);
 
-                if (response.startsWith("SUCCESS")) {
+                if (response != null && response.startsWith("SUCCESS")) {
                     System.out.println("[RESPONSE] " + clientAddress + " <- SUCCESS");
-                } else if (response.startsWith("ERROR")) {
+                } else if (response != null && response.startsWith("ERROR")) {
                     System.err.println("[RESPONSE] " + clientAddress + " <- ERROR: " + response);
                 }
 
@@ -104,14 +105,29 @@ public class ClientHandler implements Runnable {
         }
 
         try {
-            String username = parts[1];
+            String username = sanitizeUsername(parts[1]);
+            if (username == null || username.trim().isEmpty()) {
+                return "ERROR|Invalid username";
+            }
+
             double amount = Double.parseDouble(parts[2]);
             String category = parts[3];
-            LocalDate date = LocalDate.parse(parts[4], dateFormatter);
+            
+            if (category == null || category.trim().isEmpty()) {
+                return "ERROR|Category cannot be empty";
+            }
+
+            LocalDate date;
+            try {
+                date = LocalDate.parse(parts[4], dateFormatter);
+            } catch (Exception e) {
+                return "ERROR|Invalid date format. Use YYYY-MM-DD";
+            }
+
             String note = parts.length > 5 ? parts[5] : "";
 
-            if (amount <= 0) {
-                return "ERROR|Amount must be positive";
+            if (amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) {
+                return "ERROR|Amount must be a positive number";
             }
 
             Expense expense = new Expense(amount, category, date, note);
@@ -160,6 +176,17 @@ public class ClientHandler implements Runnable {
         }
     }
 
+    private String sanitizeUsername(String username) {
+        if (username == null) {
+            return null;
+        }
+        String sanitized = username.trim();
+        if (sanitized.isEmpty() || sanitized.length() > 50) {
+            return null;
+        }
+        return sanitized.replaceAll("[^a-zA-Z0-9_-]", "");
+    }
+
     private void cleanup() {
         try {
             if (input != null) input.close();
@@ -170,7 +197,7 @@ public class ClientHandler implements Runnable {
             Server.removeClient(this);
 
         } catch (IOException e) {
-            System.err.println("Error closing client resources: " + e.getMessage());
+            System.err.println("[ERROR] Error closing client resources: " + e.getMessage());
         }
     }
 }

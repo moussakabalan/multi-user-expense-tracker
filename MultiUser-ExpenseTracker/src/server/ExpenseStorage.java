@@ -17,22 +17,29 @@ public class ExpenseStorage {
 
         try {
             Files.createDirectories(Paths.get(DATA_DIRECTORY));
-            System.out.println("✓ Data directory ready: " + DATA_DIRECTORY);
+            System.out.println("[STORAGE] ✓ Data directory ready: " + DATA_DIRECTORY);
         } catch (IOException e) {
-            System.err.println("Error creating data directory: " + e.getMessage());
+            System.err.println("[ERROR] Error creating data directory: " + e.getMessage());
         }
 
         loadAllUserData();
     }
 
     public synchronized void addExpense(String username, Expense expense) {
+        if (username == null || username.trim().isEmpty() || expense == null) {
+            System.err.println("[STORAGE] Invalid expense data - username or expense is null");
+            return;
+        }
+
         userExpenses.putIfAbsent(username, new ArrayList<>());
         List<Expense> expenses = userExpenses.get(username);
-        expenses.add(expense);
+        synchronized (expenses) {
+            expenses.add(expense);
+        }
         saveUserData(username);
 
         System.out.println("[STORAGE] Added expense for " + username +
-                ": $" + expense.getAmount());
+                ": $" + String.format("%.2f", expense.getAmount()));
     }
 
     public synchronized List<Expense> getExpenses(String username) {
@@ -44,22 +51,28 @@ public class ExpenseStorage {
     }
 
     private void saveUserData(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            return;
+        }
+
         String filename = DATA_DIRECTORY + "/" + username + ".json";
 
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
             List<Expense> expenses = userExpenses.get(username);
 
             if (expenses != null) {
-                for (Expense expense : expenses) {
-                    writer.write(ExpenseJson.toJson(expense));
-                    writer.newLine();
+                synchronized (expenses) {
+                    for (Expense expense : expenses) {
+                        if (expense != null) {
+                            writer.write(ExpenseJson.toJson(expense));
+                            writer.newLine();
+                        }
+                    }
                 }
             }
 
-            System.out.println("[STORAGE] Saved data for user: " + username);
-
         } catch (IOException e) {
-            System.err.println("Error saving data for " + username);
+            System.err.println("[ERROR] Error saving data for " + username + ": " + e.getMessage());
         }
     }
 
@@ -82,7 +95,7 @@ public class ExpenseStorage {
             System.out.println("[STORAGE] Loaded " + expenses.size() + " expenses for: " + username);
 
         } catch (IOException e) {
-            System.err.println("Error loading data for " + username);
+            System.err.println("[ERROR] Error loading data for " + username);
         }
     }
 

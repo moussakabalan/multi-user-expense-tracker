@@ -20,6 +20,7 @@ public class ClientConnection {
     public boolean connect() {
         try {
             socket = new Socket(host, port);
+            socket.setSoTimeout(30000);
             input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             output = new PrintWriter(socket.getOutputStream(), true);
             
@@ -28,9 +29,11 @@ public class ClientConnection {
                 connected = true;
                 return true;
             }
+            disconnect();
             return false;
         } catch (IOException e) {
-            System.err.println("Connection failed! :( Error: " + e.getMessage());
+            System.err.println("Connection failed: " + e.getMessage());
+            disconnect();
             return false;
         }
     }
@@ -40,9 +43,21 @@ public class ClientConnection {
             return "ERROR|Not connected to server";
         }
 
+        if (command == null || command.trim().isEmpty()) {
+            return "ERROR|Invalid command";
+        }
+
         try {
             output.println(command);
-            return input.readLine();
+            String response = input.readLine();
+            if (response == null) {
+                connected = false;
+                return "ERROR|Connection lost: Server closed connection";
+            }
+            return response;
+        } catch (java.net.SocketTimeoutException e) {
+            connected = false;
+            return "ERROR|Connection timeout";
         } catch (IOException e) {
             connected = false;
             return "ERROR|Connection lost: " + e.getMessage();

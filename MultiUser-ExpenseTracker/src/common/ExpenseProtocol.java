@@ -19,9 +19,10 @@ public class ExpenseProtocol {
     }
 
     public static String toServerMessage(Expense expense, String username) {
+        String note = expense.getNote() != null ? expense.getNote().replace("|", "_") : "";
         return String.format("ADD_EXPENSE|%s|%.2f|%s|%s|%s",
                 username, expense.getAmount(), expense.getCategory(),
-                expense.getDate().format(dateFormatter), expense.getNote());
+                expense.getDate().format(dateFormatter), note);
     }
 }
 
