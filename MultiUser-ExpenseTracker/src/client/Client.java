@@ -12,13 +12,18 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.chart.PieChart;
 import javafx.stage.Stage;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.scene.control.Alert.AlertType;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Client extends Application {
     private static final String HOST = "localhost";
@@ -36,6 +41,7 @@ public class Client extends Application {
     private Label welcomeLabel;
     private TableView<Expense> expensesTable;
     private ObservableList<Expense> expensesData;
+    private PieChart pieChart;
 
     @Override
     public void start(Stage stage) {
@@ -48,6 +54,16 @@ public class Client extends Application {
         viewExpensesScene = createViewExpensesScene();
 
         // Start app on the login screen
+        try {
+            String cssPath = getClass().getResource("styles.css").toExternalForm();
+            loginScene.getStylesheets().add(cssPath);
+            dashboardScene.getStylesheets().add(cssPath);
+            addExpenseScene.getStylesheets().add(cssPath);
+            viewExpensesScene.getStylesheets().add(cssPath);
+        } catch (Exception e) {
+            System.err.println("Could not load CSS: " + e.getMessage());
+        }
+
         primaryStage.setTitle("Multi-User Expense Tracker");
         primaryStage.setScene(loginScene);
         primaryStage.show();
@@ -56,7 +72,7 @@ public class Client extends Application {
     // ---------- LOGIN SCREEN ----------
     private Scene createLoginScene() {
         Label titleLabel = new Label("Multi-User Expense Tracker");
-        titleLabel.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        titleLabel.getStyleClass().add("title-label");
 
         Label usernameLabel = new Label("Username:");
         TextField usernameField = new TextField();
@@ -87,7 +103,10 @@ public class Client extends Application {
                 errorLabel.setText("");
                 showDashboard();
             } else {
-                errorLabel.setText("Failed to connect to server. Make sure server is running.");
+                showAlert(AlertType.ERROR, "Connection Error", 
+                    "Failed to connect to server.", 
+                    "Make sure the server is running on " + HOST + ":" + PORT);
+                errorLabel.setText("Failed to connect to server.");
                 statusLabel.setText("");
             }
         });
@@ -123,6 +142,7 @@ public class Client extends Application {
         addExpenseButton.setOnAction(e -> primaryStage.setScene(addExpenseScene));
         viewExpensesButton.setOnAction(e -> {
             loadExpenses();
+            updatePieChart(pieChart);
             primaryStage.setScene(viewExpensesScene);
         });
         logoutButton.setOnAction(e -> {
@@ -181,18 +201,40 @@ public class Client extends Application {
 
         submitButton.setOnAction(e -> {
             try {
-                double amount = Double.parseDouble(amountField.getText().trim());
-                String category = categoryComboBox.getValue();
-                LocalDate date = datePicker.getValue();
-                String note = noteField.getText().trim();
-
-                if (category == null || category.trim().isEmpty()) {
-                    errorLabel.setText("Please select a Category.");
+                String amountText = amountField.getText().trim();
+                if (amountText.isEmpty()) {
+                    showAlert(AlertType.WARNING, "Validation Error", 
+                        "Amount is required", "Please enter an amount.");
                     return;
                 }
 
+                double amount = Double.parseDouble(amountText);
+                
+                if (amount <= 0) {
+                    showAlert(AlertType.WARNING, "Validation Error", 
+                        "Invalid Amount", "Amount must be greater than zero.");
+                    return;
+                }
+
+                String category = categoryComboBox.getValue();
+                if (category == null || category.trim().isEmpty()) {
+                    showAlert(AlertType.WARNING, "Validation Error", 
+                        "Category Required", "Please select a category.");
+                    return;
+                }
+
+                LocalDate date = datePicker.getValue();
                 if (date == null) {
-                    errorLabel.setText("Please select a Date.");
+                    showAlert(AlertType.WARNING, "Validation Error", 
+                        "Date Required", "Please select a date.");
+                    return;
+                }
+
+                String note = noteField.getText().trim();
+
+                if (!connection.isConnected()) {
+                    showAlert(AlertType.ERROR, "Connection Error", 
+                        "Not connected to server", "Please reconnect and try again.");
                     return;
                 }
 
@@ -202,6 +244,7 @@ public class Client extends Application {
 
                 if (response != null && response.startsWith("SUCCESS")) {
                     statusLabel.setText("Expense added successfully!");
+                    statusLabel.getStyleClass().add("success-label");
                     errorLabel.setText("");
                     amountField.clear();
                     categoryComboBox.setValue(null);
@@ -209,14 +252,20 @@ public class Client extends Application {
                     noteField.clear();
                     loadExpenses();
                 } else {
+                    showAlert(AlertType.ERROR, "Server Error", 
+                        "Failed to add expense", response != null ? response : "Unknown error");
                     errorLabel.setText("Error: " + response);
                     statusLabel.setText("");
                 }
             } catch (NumberFormatException ex) {
-                errorLabel.setText("Invalid amount. Please enter a number.");
+                showAlert(AlertType.WARNING, "Validation Error", 
+                    "Invalid Amount", "Please enter a valid number.");
+                errorLabel.setText("Invalid amount format.");
                 statusLabel.setText("");
             } catch (Exception ex) {
-                errorLabel.setText("Invalid input: " + ex.getMessage());
+                showAlert(AlertType.ERROR, "Error", 
+                    "Unexpected error", ex.getMessage());
+                errorLabel.setText("Error: " + ex.getMessage());
                 statusLabel.setText("");
             }
         });
@@ -247,12 +296,16 @@ public class Client extends Application {
 
     private Scene createViewExpensesScene() {
         Label titleLabel = new Label("Your Expenses");
-        titleLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
+        titleLabel.getStyleClass().add("title-label");
 
         expensesData = FXCollections.observableArrayList();
         expensesTable = new TableView<>(expensesData);
-        expensesTable.setPrefHeight(300);
+        expensesTable.setPrefHeight(250);
         expensesTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+        pieChart = new PieChart();
+        pieChart.setPrefHeight(250);
+        pieChart.setTitle("Spending by Category");
 
         TableColumn<Expense, Double> amountColumn = new TableColumn<>("Amount");
         amountColumn.setCellValueFactory(new PropertyValueFactory<>("amount"));
@@ -285,24 +338,61 @@ public class Client extends Application {
         Button refreshButton = new Button("Refresh");
         Button backButton = new Button("Back to Dashboard");
 
-        refreshButton.setOnAction(e -> loadExpenses());
+        refreshButton.setOnAction(e -> {
+            loadExpenses();
+            updatePieChart(pieChart);
+        });
         backButton.setOnAction(e -> primaryStage.setScene(dashboardScene));
 
         HBox buttonBox = new HBox(10);
         buttonBox.setAlignment(Pos.CENTER);
         buttonBox.getChildren().addAll(refreshButton, backButton);
 
+        HBox chartsBox = new HBox(20);
+        chartsBox.setAlignment(Pos.CENTER);
+        chartsBox.getChildren().addAll(expensesTable, pieChart);
+
         VBox root = new VBox(10);
         root.setAlignment(Pos.CENTER);
         root.setPadding(new Insets(20));
         root.getChildren().addAll(
                 titleLabel,
-                expensesTable,
+                chartsBox,
                 statusLabel,
                 buttonBox
         );
 
-        return new Scene(root, 700, 500);
+        return new Scene(root, 1000, 600);
+    }
+
+    private void updatePieChart(PieChart pieChart) {
+        pieChart.getData().clear();
+
+        if (expensesData == null || expensesData.isEmpty()) {
+            return;
+        }
+
+        Map<String, Double> categoryTotals = new HashMap<>();
+        for (Expense expense : expensesData) {
+            String category = expense.getCategory();
+            categoryTotals.put(category, 
+                categoryTotals.getOrDefault(category, 0.0) + expense.getAmount());
+        }
+
+        ObservableList<PieChart.Data> pieChartData = FXCollections.observableArrayList();
+        for (Map.Entry<String, Double> entry : categoryTotals.entrySet()) {
+            pieChartData.add(new PieChart.Data(entry.getKey(), entry.getValue()));
+        }
+
+        pieChart.setData(pieChartData);
+    }
+
+    private void showAlert(AlertType type, String title, String header, String content) {
+        Alert alert = new Alert(type);
+        alert.setTitle(title);
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        alert.showAndWait();
     }
 
     private void showDashboard() {
@@ -321,18 +411,24 @@ public class Client extends Application {
 
         if (!connection.isConnected()) {
             expensesData.clear();
-            return;
-        }
-
-        String command = "GET_EXPENSES|" + currentUsername;
-        String response = connection.sendCommand(command);
-
-        if (response == null || !response.startsWith("SUCCESS")) {
-            expensesData.clear();
+            showAlert(AlertType.ERROR, "Connection Error", 
+                "Not connected to server", "Please reconnect and try again.");
             return;
         }
 
         try {
+            String command = "GET_EXPENSES|" + currentUsername;
+            String response = connection.sendCommand(command);
+
+            if (response == null || !response.startsWith("SUCCESS")) {
+                expensesData.clear();
+                if (response != null && response.startsWith("ERROR")) {
+                    showAlert(AlertType.ERROR, "Server Error", 
+                        "Failed to load expenses", response);
+                }
+                return;
+            }
+
             String[] parts = response.split("\\|");
             if (parts.length < 2) {
                 expensesData.clear();
@@ -346,14 +442,21 @@ public class Client extends Application {
                 String json = connection.receiveResponse();
                 if (json != null) {
                     Expense expense = ExpenseJson.fromJson(json);
-                    expenses.add(expense);
+                    if (expense != null) {
+                        expenses.add(expense);
+                    }
                 }
             }
 
             expensesData.clear();
             expensesData.addAll(expenses);
+            if (pieChart != null) {
+                updatePieChart(pieChart);
+            }
         } catch (Exception e) {
             expensesData.clear();
+            showAlert(AlertType.ERROR, "Error", 
+                "Failed to load expenses", e.getMessage());
         }
     }
 

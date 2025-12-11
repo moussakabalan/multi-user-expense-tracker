@@ -32,24 +32,35 @@ public class ClientHandler implements Runnable {
 
             // this sends a welcome message after a successful connection
             output.println("CONNECTION SUCCESSFUL|Connected to Expense Tracker Server");
-            System.out.println("[" + clientAddress + "] Client handler thread started");
+            System.out.println("[HANDLER] Thread started for client " + clientAddress);
 
             // listening for client messages
             String message;
             while ((message = input.readLine()) != null) {
-                System.out.println("[" + clientAddress + "] Received: " + message);
+                if (message.trim().isEmpty()) {
+                    continue;
+                }
+
+                String command = message.split("\\|")[0];
+                System.out.println("[REQUEST] " + clientAddress + " -> " + command);
 
                 String response = processCommand(message);
                 output.println(response);
 
+                if (response.startsWith("SUCCESS")) {
+                    System.out.println("[RESPONSE] " + clientAddress + " <- SUCCESS");
+                } else if (response.startsWith("ERROR")) {
+                    System.err.println("[RESPONSE] " + clientAddress + " <- ERROR: " + response);
+                }
+
                 if (message.equalsIgnoreCase("QUIT") || message.equalsIgnoreCase("EXIT")) {
-                    System.out.println("[" + clientAddress + "] Client requested disconnect");
+                    System.out.println("[DISCONNECT] Client " + clientAddress + " requested disconnect");
                     break;
                 }
             }
 
         } catch (IOException e) {
-            System.err.println("[" + clientAddress + "] Connection error: " + e.getMessage());
+            System.err.println("[ERROR] Connection error with " + clientAddress + ": " + e.getMessage());
         } finally {
             cleanup();
         }
@@ -81,7 +92,8 @@ public class ClientHandler implements Runnable {
             }
 
         } catch (Exception e) {
-            System.err.println("[" + clientAddress + "] Error processing command: " + e.getMessage());
+            System.err.println("[ERROR] Error processing command from " + clientAddress + ": " + e.getMessage());
+            e.printStackTrace();
             return "ERROR|" + e.getMessage();
         }
     }
@@ -105,7 +117,9 @@ public class ClientHandler implements Runnable {
             Expense expense = new Expense(amount, category, date, note);
             storage.addExpense(username, expense);
 
-            System.out.println("[" + clientAddress + "] Added expense for " + username);
+            System.out.println("[ADD_EXPENSE] User: " + username + 
+                             " | Amount: $" + String.format("%.2f", amount) + 
+                             " | Category: " + category);
 
             return "SUCCESS|Expense added successfully";
 
@@ -136,7 +150,8 @@ public class ClientHandler implements Runnable {
                 response.append(ExpenseJson.toJson(expense)).append("\n");
             }
 
-            System.out.println("[" + clientAddress + "] Sent " + expenses.size() + " expenses");
+            System.out.println("[GET_EXPENSES] User: " + username + 
+                             " | Retrieved " + expenses.size() + " expense(s)");
 
             return response.toString().trim();
 
@@ -151,7 +166,7 @@ public class ClientHandler implements Runnable {
             if (output != null) output.close();
             if (clientSocket != null) clientSocket.close();
 
-            System.out.println("[" + clientAddress + "] Connection closed");
+            System.out.println("[CLEANUP] Connection closed for " + clientAddress);
             Server.removeClient(this);
 
         } catch (IOException e) {
